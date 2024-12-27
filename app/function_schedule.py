@@ -36,7 +36,7 @@ def set_schedule(req: func.HttpRequest) -> func.HttpResponse:
     vmName = vmData["id"].split("/")[8]
 
     compute_client = ComputeManagementClient(
-        credential=DefaultAzureCredential(exclude_environment_credential=True), subscription_id=subscriptionId
+        credential=DefaultAzureCredential(exclude_environment_credential=True), subscription_id=SubscriptionId
     )
 
     vmInstance = compute_client.virtual_machines.get(
@@ -75,5 +75,39 @@ def set_schedule(req: func.HttpRequest) -> func.HttpResponse:
     )
 
     add_tags_event.wait()
+
+    return func.HttpResponse("OK")
+
+
+@schedule_bp.function_name(name="ManageVM")
+@schedule_bp.route(route="api/vm", auth_level=func.AuthLevel.ANONYMOUS)
+def manage_vm(req: func.HttpRequest) -> func.HttpResponse:
+
+    vmData = json.loads(req.get_body())
+
+    # Extract subscription id and resource group from vm id
+    subscriptionId = vmData["id"].split("/")[2]
+    resourceGroup = vmData["id"].split("/")[4]
+    vmName = vmData["id"].split("/")[8]
+
+    compute_client = ComputeManagementClient(
+        credential=DefaultAzureCredential(exclude_environment_credential=True), subscription_id=subscriptionId
+    )
+
+    # Check the method type to see if we're starting or stopping the VM
+    if req.method == "POST":
+        logging.info("STARTING VM")
+        start_vm_event = compute_client.virtual_machines.begin_start(
+            resource_group_name=resourceGroup, vm_name=vmName
+        )
+        start_vm_event.wait()
+    elif req.method == "DELETE":
+        logging.info("STOPPING VM")
+        stop_vm_event = compute_client.virtual_machines.begin_deallocate(
+            resource_group_name=resourceGroup, vm_name=vmName
+        )
+        stop_vm_event.wait()
+    else:
+        return func.HttpResponse("Method not allowed", status_code=405)
 
     return func.HttpResponse("OK")
